@@ -1,0 +1,22 @@
+- limited to 12 pages
+- will be converted to pdf
+grading based on:
+- project design (images help)
+- tradeoffs, choices and why?
+- description of flow of control within submission
+- explain tests you've developed and tests you've used by didn't develop
+- this should be every bit of code that you used but did not write, this includes code, show off resources used (articles), 
+    Thus, this would include articles on Stack Overflow, any repositories you referenced on github.com, any
+    books you used, any manual pages you consulted
+In addition, you have an opportunity to earn extra credit.  To do so, we want to see something that
+adds value to the project.  Observing that there is a problem or issue _is not enough_.  We want
+something that is easily actioned.  Examples of this include:
+- Suggestions for additional tests, along with an explanation of _how_ you envision it being tested
+- Suggested revisions to the instructions, code, comments, etc.  It's not enough to say "I found
+  this confusing" - we want you to tell us what you would have said _instead_.
+While we do award extra credit, we do so sparingly.
+
+
+# Echo (warmup)
+- message no longer than 15 bytes. Allocate char buffer[16];
+- only output should be response from server
