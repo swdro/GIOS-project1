@@ -63,7 +63,6 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    printf("hello world\n");
 
 
   /* Socket Code Here */
@@ -71,25 +70,25 @@ int main(int argc, char **argv) {
   // message no longer than 15 bytes. Allocate char buffer[16];
   // only output should be response from server
 
-    //int getAddrInfoStatus;
-    //struct addrinfo addrInfoHints;
-    //struct addrinfo *serverInfo;
+    int getAddrInfoStatus;
+    struct addrinfo addrInfoHints;
+    struct addrinfo *serverInfo;
 
-    //// convert portno data type to char array
-    //char port[6] = {0, 0, 0, 0, 0, 0};
-    //sprintf(port, "%d", portno);
-    //printf("port: %s", port);
+    // convert portno data type to char array
+    char port[6] = {0};
+    sprintf(port, "%d", portno);
+    printf("port: %s\n", port);
 
-    //memset(&addrInfoHints, 0, sizeof(addrInfoHints));
-    //addrInfoHints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
-    //addrInfoHints.ai_socktype = SOCK_STREAM; // TCP stream sockets
-    //addrInfoHints.ai_flags = AI_PASSIVE;     // assign localhost address to socket structures 
+    memset(&addrInfoHints, 0, sizeof(addrInfoHints));
+    addrInfoHints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+    addrInfoHints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+    addrInfoHints.ai_flags = AI_PASSIVE;     // assign localhost address to socket structures 
 
-    //if ((getAddrInfoStatus = getaddrinfo(NULL, port, &addrInfoHints, &serverInfo)) != 0) {
-        //fprintf(stderr, "error when calling getaddrinfo(): %s\n", gai_strerror(getAddrInfoStatus));
-        //exit(1);
-    //}
+    if ((getAddrInfoStatus = getaddrinfo(NULL, port, &addrInfoHints, &serverInfo)) != 0) {
+        fprintf(stderr, "error when calling getaddrinfo(): %s\n", gai_strerror(getAddrInfoStatus));
+        exit(1);
+    }
 
-    //freeaddrinfo(serverInfo); // free server addrinfo struct
+    freeaddrinfo(serverInfo); // free server addrinfo struct
 
 }
