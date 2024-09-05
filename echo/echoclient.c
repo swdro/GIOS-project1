@@ -77,5 +77,78 @@ int main(int argc, char **argv)
     }
 
     /* Socket Code Here */
+    int getAddrInfoStatus;
+    struct addrinfo addrInfoHints;
+    struct addrinfo *serverInfo;
 
+    // convert portno data type to char array
+    char port[6] = {0}; // port cannot be larger than 5 digits + null terminator
+    sprintf(port, "%d", portno);
+    printf("port: %s\n", port);
+
+    memset(&addrInfoHints, 0, sizeof(addrInfoHints));
+    addrInfoHints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+    addrInfoHints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+    addrInfoHints.ai_flags = AI_PASSIVE;     // assign localhost address to socket structures 
+
+    // perform error checking to look for valid entries in the linked list, see client/server for real examples
+    if ((getAddrInfoStatus = getaddrinfo(NULL, port, &addrInfoHints, &serverInfo)) != 0) {
+        fprintf(stderr, "error when calling getaddrinfo(): %s\n", gai_strerror(getAddrInfoStatus));
+        exit(1);
+    }
+
+    // create socket
+    int socketFd;
+    int option = 1;
+    socketFd = socket(serverInfo->ai_family, serverInfo->ai_socktype, serverInfo->ai_protocol);
+    /*
+    had an issue where the socket was entering the TIME_WAIT state. I had to set 
+    an option for the socket (SO_REUSEADDR) so the address can be reused. Solution found
+    here: https://stackoverflow.com/questions/5106674/error-address-already-in-use-while-binding-socket-with-address-but-the-port-num
+    */
+    if (setsockopt(socketFd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option)) == -1) {
+        perror("setsockopt");
+        exit(1);
+    }
+    if (socketFd == -1) {
+        fprintf(stderr, "error when creating socket: %s\n", strerror(errno));
+        exit(1);
+    }
+    printf("socket successfully created: %d\n", socketFd);
+
+    //connect to server
+    int connectStatus = connect(socketFd, serverInfo->ai_addr, serverInfo->ai_addrlen);
+    if (connectStatus == -1) {
+        fprintf(stderr, "error when connecting to server: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    // send message to server
+    int msgLength = strlen(message);
+    int bytesSent = send(socketFd, message, msgLength, 0);
+    if (bytesSent == -1) {
+        fprintf(stderr, "Error sending message: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    int bufferSize = 16;
+    char buffer[16] = {0}; 
+    // receive message from server
+    int recvBytes = recv(socketFd, buffer, bufferSize, 0);
+    if (recvBytes == -1) {
+        close(socketFd);
+        fprintf(stderr, "error when receiving bytes");
+        exit(1);
+    }
+
+    for (int i = 0; i < bufferSize; i++) {
+        printf("%s", buffer + i);
+        if (buffer[i] == '\0') {
+            break;
+        }
+        printf("%s", buffer + i);
+    }
+
+    close(socketFd);
+    freeaddrinfo(serverInfo); // free server addrinfo struct
 }
