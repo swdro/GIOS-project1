@@ -20,3 +20,15 @@ While we do award extra credit, we do so sparingly.
 # Echo (warmup)
 - message no longer than 15 bytes. Allocate char buffer[16];
 - only output should be response from server
+
+I first started this part of the project by creating the server. I started with the getaddrinfo() function where all the information I need regarding my server is nicely
+compacted into a struct for later use. I had to do some extra work to make sure the arguments passed in worked as intended. This included converting the port that was assigned by the 
+skeleton code back to a char array and creating an addrinfo struct to assign some hints such as allowing both IPv4/IPv6, setting sockets to TCP, and filling in the IP to localhost. 
+
+References: 
+- Beej's guide to Network Programming: used as a guide to create the client/server system calls
+- https://stackoverflow.com/questions/8257714/how-can-i-convert-an-int-to-a-string-in-c : helped me understand 
+- https://stackoverflow.com/questions/5106674/error-address-already-in-use-while-binding-socket-with-address-but-the-port-num : fixed issue where I'd receive "addres in use" when trying to open a socket on the same address/port
+
+
+fgets clears the buffer for you, 

@@ -78,13 +78,10 @@ int main(int argc, char **argv) {
     // convert portno data type to char array
     char port[6] = {0}; // port cannot be larger than 5 digits + null terminator
     sprintf(port, "%d", portno);
-    printf("port: %s\n", port);
-
     memset(&addrInfoHints, 0, sizeof(addrInfoHints));
     addrInfoHints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
     addrInfoHints.ai_socktype = SOCK_STREAM; // TCP stream sockets
     addrInfoHints.ai_flags = AI_PASSIVE;     // assign localhost address to socket structures 
-
     // perform error checking to look for valid entries in the linked list, see client/server for real examples
     if ((getAddrInfoStatus = getaddrinfo(NULL, port, &addrInfoHints, &serverInfo)) != 0) {
         fprintf(stderr, "error when calling getaddrinfo(): %s\n", gai_strerror(getAddrInfoStatus));
@@ -105,7 +102,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "error when creating socket: %s\n", strerror(errno));
         exit(1);
     }
-    printf("socket successfully created: %d\n", socketFd);
+    //printf("socket successfully created: %d\n", socketFd);
 
     // bind socket
     int bindResult = bind(socketFd, serverInfo->ai_addr, serverInfo->ai_addrlen);
@@ -114,7 +111,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "error on socket bind: %s\n", strerror(errno));
         exit(1);
     }
-    printf("socket successfully bound, bindResult: %d\n", bindResult);
+    //printf("socket successfully bound, bindResult: %d\n", bindResult);
 
     // listen on socket and accept n connections
     int listenResult = listen(socketFd, maxnpending);
@@ -123,38 +120,42 @@ int main(int argc, char **argv) {
         fprintf(stderr, "error on listen: %s\n", strerror(errno));
         exit(1);
     }
-    printf("listen result: %d\n", listenResult);
+    //printf("listen result: %d\n", listenResult);
 
-    struct sockaddr_storage clientAddr;
-    socklen_t clientAddrSize = 0;
-    int clientFd = accept(socketFd, (struct sockaddr *)&clientAddr, &clientAddrSize);
-    if (clientFd == -1) {
-        close(socketFd);
-        fprintf(stderr, "error on accept: %s\n", strerror(errno));
-        exit(1);
-    }
-    printf("client fd: %d\n", clientFd);
+    while(1) {
+        struct sockaddr_storage clientAddr;
+        socklen_t clientAddrSize = 0;
+        int clientFd = accept(socketFd, (struct sockaddr *)&clientAddr, &clientAddrSize);
+        if (clientFd == -1) {
+            close(socketFd);
+            fprintf(stderr, "error on accept: %s\n", strerror(errno));
+            exit(1);
+        }
+        //printf("client fd: %d\n", clientFd);
 
-    int bufferSize = 16;
-    char buffer[16] = {0}; // port cannot be larger than 5 digits + null terminator
-    int recvBytes = recv(clientFd, buffer, bufferSize, 0);
-    if (recvBytes == -1) {
-        close(socketFd);
-        fprintf(stderr, "error when receiving bytes");
-        exit(1);
-    }
-    printf("received message: \n\n %s\n", buffer);
+        int bufferSize = 16;
+        char buffer[16] = {0}; // port cannot be larger than 5 digits + null terminator
+        int recvBytes = recv(clientFd, buffer, bufferSize, 0);
+        if (recvBytes == -1) {
+            close(socketFd);
+            fprintf(stderr, "error when receiving bytes");
+            exit(1);
+        }
+        //printf("received message: \n\n%s\n", buffer);
+        //printf("sending message: %s\n", buffer);
 
-    //send message back to client 
-    int bytesSent = send(socketFd, buffer, bufferSize, 0);
-    if (bytesSent == -1) {
-        close(socketFd);
-        fprintf(stderr, "Error sending message: %s\n", strerror(errno));
-        exit(1);
+        //send message back to client 
+        int bytesSent = send(clientFd, buffer, bufferSize, 0);
+        //printf("bytes sent: %d\n", bytesSent);
+        if (bytesSent == -1) {
+            close(socketFd);
+            fprintf(stderr, "Error sending message: %s\n", strerror(errno));
+            exit(1);
+        }
     }
+
 
     // cleanup
-    close(clientFd);
     close(socketFd);
     freeaddrinfo(serverInfo); // free server addrinfo struct
 

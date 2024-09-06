@@ -84,7 +84,7 @@ int main(int argc, char **argv)
     // convert portno data type to char array
     char port[6] = {0}; // port cannot be larger than 5 digits + null terminator
     sprintf(port, "%d", portno);
-    printf("port: %s\n", port);
+    //printf("port: %s\n", port);
 
     memset(&addrInfoHints, 0, sizeof(addrInfoHints));
     addrInfoHints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
@@ -103,18 +103,17 @@ int main(int argc, char **argv)
     socketFd = socket(serverInfo->ai_family, serverInfo->ai_socktype, serverInfo->ai_protocol);
     /*
     had an issue where the socket was entering the TIME_WAIT state. I had to set 
-    an option for the socket (SO_REUSEADDR) so the address can be reused. Solution found
-    here: https://stackoverflow.com/questions/5106674/error-address-already-in-use-while-binding-socket-with-address-but-the-port-num
+    an option for the socket (SO_REUSEADDR) so the address can be reused. 
     */
     if (setsockopt(socketFd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option)) == -1) {
-        perror("setsockopt");
+        perror("error on setsockopt");
         exit(1);
     }
     if (socketFd == -1) {
         fprintf(stderr, "error when creating socket: %s\n", strerror(errno));
         exit(1);
     }
-    printf("socket successfully created: %d\n", socketFd);
+    //printf("socket successfully created: %d\n", socketFd);
 
     //connect to server
     int connectStatus = connect(socketFd, serverInfo->ai_addr, serverInfo->ai_addrlen);
@@ -140,14 +139,16 @@ int main(int argc, char **argv)
         fprintf(stderr, "error when receiving bytes");
         exit(1);
     }
+    //printf("received %d bytes\n", recvBytes);
 
+    // account for null terminator by iterating over buffer until either buffer size or null terminator is reached 
     for (int i = 0; i < bufferSize; i++) {
-        printf("%s", buffer + i);
         if (buffer[i] == '\0') {
             break;
         }
-        printf("%s", buffer + i);
+        printf("%c", buffer[i]);
     }
+    //printf("\n");
 
     close(socketFd);
     freeaddrinfo(serverInfo); // free server addrinfo struct
