@@ -87,9 +87,9 @@ int main(int argc, char **argv)
     //printf("port: %s\n", port);
 
     memset(&addrInfoHints, 0, sizeof(addrInfoHints));
-    addrInfoHints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
-    addrInfoHints.ai_socktype = SOCK_STREAM; // TCP stream sockets
-    addrInfoHints.ai_flags = AI_PASSIVE;     // assign localhost address to socket structures 
+    addrInfoHints.ai_family = AF_UNSPEC;     // IPv4 or IPv6
+    addrInfoHints.ai_socktype = SOCK_STREAM; // TCP
+    addrInfoHints.ai_flags = AI_PASSIVE;     // localhost address to socket structures 
 
     // perform error checking to look for valid entries in the linked list, see client/server for real examples
     if ((getAddrInfoStatus = getaddrinfo(NULL, port, &addrInfoHints, &serverInfo)) != 0) {
