@@ -15,9 +15,9 @@ typedef int gfstatus_t;
 #define  GF_OK 200
 #define  GF_FILE_NOT_FOUND 400
 
-typedef struct gfcontext_t gfcontext_t;
+typedef struct gfcontext_t gfcontext_t; // details related to the request
 typedef size_t gfh_error_t;
-typedef struct gfserver_t gfserver_t;
+typedef struct gfserver_t gfserver_t; // details related to the server
 
 /*
  * This function must be the first one called as part of
