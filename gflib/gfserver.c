@@ -1,6 +1,7 @@
 #include "gfserver-student.h"
 #include <stdlib.h>
 #include <fcntl.h>
+#include <stdio.h>
 
 // Modify this file to implement the interface specified in
  // gfserver.h.
@@ -17,21 +18,29 @@ struct gfcontext_t {
 };
 
 void gfs_abort(gfcontext_t **ctx){
+    free(*ctx);
 }
 
 ssize_t gfs_send(gfcontext_t **ctx, const void *data, size_t len){
     // not yet implemented
     fprintf(stdout, "handler called: gfs_send(<ctx>, <data>, %lu)\n", len);
+    int clientFd = (*ctx)->clientFd;
+    printf("length: %zu\n", len);
     char buffer[len];
-    memcpy(&buffer, data, len);
-    buffer[len-1] = '\0';
-    fprintf(stdout, "handle passed <data>: '%s'\n", buffer);
-    return 1034;
+    memcpy(buffer, data, len);
+    int bytesSent = sendAll(clientFd, buffer, len);
+    if (bytesSent == -1) {
+        printf("Response data failed to send: %s\n", strerror(errno));
+        //abort
+    }
+    printf("successfully sent %d bytes\n", bytesSent);
+    return bytesSent;
 }
 
 ssize_t gfs_sendheader(gfcontext_t **ctx, gfstatus_t status, size_t file_len){
     // not yet implemented
     fprintf(stdout, "handler called: gfs_sendheader(%d, %lu)\n", status, file_len);
+    int clientFd = (*ctx)->clientFd;
     char *scheme = "GETFILE";
     char *endHeaderMarker = "\r\n\r\n";
     char fileLenStr[100];
@@ -39,26 +48,36 @@ ssize_t gfs_sendheader(gfcontext_t **ctx, gfstatus_t status, size_t file_len){
     switch (status) {
         case 200:
             statusStr = "OK";
+            break;
         case 400: 
             statusStr = "FILE_NOT_FOUND";
+            break;
         case 500:
             statusStr = "ERROR";
+            break;
         case 600:
             statusStr = "INVALID";
+            break;
     }
-    itoa(file_len, fileLenStr, 10);
+    sprintf(fileLenStr, "%d", (int) file_len);
 
-    // create header
+    // create header string
     char header[100] = {0};
     strcat(header, scheme);
-    strcat(header, ' ');
+    strcat(header, " ");
     strcat(header, statusStr);
-    strcat(header, ' ');
+    strcat(header, " ");
     strcat(header, fileLenStr);
     strcat(header, endHeaderMarker);
+    int headerLen = strlen(header);
     printf("header: %s\n", header);
-
-    return strlen(header) + 1;
+    // send header and make sure all bytes have been sent
+    int bytesSent = sendAll(clientFd, header, headerLen);
+    if (bytesSent == -1) {
+        printf("Response header failed to send: %s\n", strerror(errno));
+    }
+    printf("header length: %zu\nsuccessfully sent %d bytes\n", strlen(header), bytesSent);
+    return bytesSent;
 }
 
 /*
@@ -164,41 +183,73 @@ void gfserver_serve(gfserver_t **gfs){
         gfcontext->clientFd = clientFd;
         printf("gf context : %d\n", gfcontext->clientFd);
 
-        gfserver->handler(&gfcontext, "/courses/ud923/filecorpus/1kb-sample-file-1.html", gfserver->handlerarg);
-        printf("mesage sent successfully");
+
+        /*
+        incomplete header:
+        - we receive incomplete header..  handled by timeout
+        - client closes connection, we return 0 and close in parent function call
+        - recv fails, we return -1 and fail in parent
+
+        returns: string that is not null terminated
+        */
+        int BUFFSIZE = 300;
+        char buffer[BUFFSIZE];
+        memset(buffer, 0, BUFFSIZE);
+        int receivedBytes = recv(clientFd, buffer, BUFFSIZE - 1, 0);
+        while (receivedBytes > 0) {
+            if (receivedBytes == -1) {
+                printf("Response data failed to send: %s\n", strerror(errno));
+                exit(1);
+            }
+            // check if end sequence is found by comparing with last 4 characters in received string
+            if (receivedBytes > 4) {
+                // get last 4 characters of received header 
+                char endSequence[5]; // account for null terminator
+                memset(endSequence, 0, 5);
+                int currBufferPosition = receivedBytes - 1;
+                int startEndSequencePosition = receivedBytes - 5;
+                int endSequenceIndex = 0;
+                while (startEndSequencePosition < currBufferPosition) {
+                    printf("endSequendceIndex: %d\n", endSequenceIndex);
+                    endSequence[endSequenceIndex] = buffer[currBufferPosition];
+                    endSequenceIndex++;
+                    currBufferPosition--;
+                }
+                if (strcmp(endSequence, "\r\n\r\n") == 0) {
+                    break;
+                }
+            }
+            char tempBuffer[BUFFSIZE - (strlen(buffer) + 1)];
+            receivedBytes += recv(clientFd, tempBuffer, BUFFSIZE - 1, 0);
+            strcat(buffer, tempBuffer);
+        }
+        if (receivedBytes == 0) {
+            close(clientFd);
+        } else {
+            // buffer is null terminated
+            strtok(buffer, " "); // get header scheme 
+            strtok(NULL, " "); // get method
+            char *headerPath = strtok(NULL, " ");
+            // remove \r\n\r\n at end of header path 
+            for (int i = 0; i < strlen(headerPath); i++) {
+                if (headerPath[i] == '\r' || headerPath[i] == '\n') {
+                    headerPath[i] = '0';
+                }
+            }
+
+            //gfserver->handler(&gfcontext, "/courses/ud923/filecorpus/1kb-sample-file-1.html", gfserver->handlerarg);
+            gfserver->handler(&gfcontext, headerPath, gfserver->handlerarg);
+            printf("mesage sent successfully");
+        }
+
+
+        free(gfcontext);
 
         /*
         - receive the request
         - handle the request and send necesary information to the handler (gfcontext_t **, const char *, void*)
         - close client socket connection, cleanup
         */
-
-        // ***** below code should be implemented in the handler
-
-        // open file and get file descriptor, S_IRUSR and S_IWUSR specifies read and write permission for file owner
-        /*
-        int fileFd = open(filename, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-        // read file to buffer
-        char buffer[BUFSIZE] = {0};
-        while (read(fileFd, buffer, BUFSIZE - 1) != 0) {
-            //send file to client 
-            int bufferLength = strlen(buffer);
-            int sentBytes = sendAll(clientFd, buffer, &bufferLength);
-            if (sentBytes == -1) {
-                close(clientFd);
-                close(socketFd);
-                close(fileFd);
-                fprintf(stderr, "error when sending file");
-                exit(1);
-            }
-            memset(buffer, 0, BUFSIZE);
-        }
-        close(fileFd);
-        close(clientFd);
-        */
-
-        // ***** above code should be implemented in the handler
-
 
     }
 }

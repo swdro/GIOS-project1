@@ -18,4 +18,6 @@
 #include <sys/signal.h>
 #include <netinet/in.h>
 
+int sendAll(int fd, char *buffer, int bufferLength);
+
  #endif // __GF_STUDENT_H__
