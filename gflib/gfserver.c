@@ -117,6 +117,38 @@ void gfserver_set_handler(gfserver_t **gfs, gfh_error_t (*handler)(gfcontext_t *
     gfserver->handler = handler;
 }
 
+// define state functions
+STATE_RETURN_CODE startState(char* currStr, char c) {
+    return SUCCESS;
+}
+
+// state functions
+typedef STATE_RETURN_CODE (*GetFileStateFunc)(char *currStr,  char c);
+GetFileStateFunc GetFileStateFunctions[] = {
+    startState,
+};
+
+// define different states
+typedef enum {
+    START,
+    END
+} GETFILESTATE;
+
+// transition struct definition 
+typedef struct {
+    GETFILESTATE sourceState;
+    STATE_RETURN_CODE returnCode;
+    GETFILESTATE destinationState;
+} Transition;
+
+// transition array to define transitions
+Transition transitionStates[][3] = {
+{
+    {START, SUCCESS, END}, 
+    {START, REPEAT, START},
+},
+};
+
 void gfserver_serve(gfserver_t **gfs){
     // server logic
     gfserver_t *gfserver = *gfs;
@@ -183,6 +215,62 @@ void gfserver_serve(gfserver_t **gfs){
         gfcontext->clientFd = clientFd;
         printf("gf context : %d\n", gfcontext->clientFd);
 
+        GETFILESTATE currState;
+        size_t getFileMessageCapacity = 2048;
+        char *getFileMessage = calloc(getFileMessageCapacity, sizeof(char));
+        int recvBytes = recv(socketFd, getFileMessage, getFileMessageCapacity-1, 0);
+        int getFileMessageIndex = 0;
+        STATE_RETURN_CODE rc;
+
+        while (recvBytes != 0) {
+            if (recvBytes == -1) {
+                close(socketFd);
+                fprintf(stderr, "error when receiving bytes");
+                exit(1);
+            }
+            printf("getFileMessage: %s\n", getFileMessage);
+
+
+            while (getFileMessageIndex < strlen(getFileMessage)) {
+                // call state functions
+                GetFileStateFunc stateFunc = GetFileStateFunctions[currState];
+                rc = stateFunc(getFileMessage, getFileMessage[getFileMessageIndex]);
+                for (int i = 0; i < 2; i++) { // change 2 to whatever the size of inner most keys_array_ptr
+                    Transition temp_state = transitionStates[currState][i];
+                    if (temp_state.returnCode == rc) {
+                        printf("%d -> %d\n", currState, temp_state.destinationState);
+                        currState = temp_state.destinationState;
+                        if (rc == SUCCESS) {
+                            printf("SUCCESS!! \n");
+                            //free(curr_str);
+                            //curr_str = calloc(1, sizeof(char));
+                            //curr_str[0] = '\0';
+                        }
+                        break;
+                    }
+                }
+                if (rc == FAIL) {
+                    printf("Failed, returning.. \n");
+                    break; // associated function printed to stderr already
+                }
+            }
+            
+            // stop receiving bytes on success or fail
+            if (rc == SUCCESS || rc == FAIL) {
+                break;
+            }
+
+            // get more memory for message if needed
+            int getFileMessageSpaceLeft = getFileMessageCapacity - strlen(getFileMessage) - 1; // account for null term
+            if (getFileMessageSpaceLeft == 0) {
+                getFileMessageSpaceLeft += getFileMessageCapacity; // since we double capacity, add current capactiy to current space left
+                getFileMessageCapacity *= 2;
+                getFileMessage = realloc(getFileMessage, sizeof(char) * getFileMessageCapacity);
+            }
+            int recvBytes = recv(socketFd, getFileMessage + strlen(getFileMessage), getFileMessageSpaceLeft, 0);
+            getFileMessage[strlen(getFileMessage)] = 0; // set null terminator
+        }
+        
 
         /*
         incomplete header:
@@ -192,58 +280,58 @@ void gfserver_serve(gfserver_t **gfs){
 
         returns: string that is not null terminated
         */
-        int BUFFSIZE = 300;
-        char buffer[BUFFSIZE];
-        memset(buffer, 0, BUFFSIZE);
-        int receivedBytes = recv(clientFd, buffer, BUFFSIZE - 1, 0);
-        while (receivedBytes > 0) {
-            if (receivedBytes == -1) {
-                printf("Response data failed to send: %s\n", strerror(errno));
-                exit(1);
-            }
-            // check if end sequence is found by comparing with last 4 characters in received string
-            if (receivedBytes > 4) {
-                // get last 4 characters of received header 
-                char endSequence[5]; // account for null terminator
-                memset(endSequence, 0, 5);
-                int currBufferPosition = receivedBytes - 1;
-                int startEndSequencePosition = receivedBytes - 5;
-                int endSequenceIndex = 0;
-                while (startEndSequencePosition < currBufferPosition) {
-                    printf("endSequendceIndex: %d\n", endSequenceIndex);
-                    endSequence[endSequenceIndex] = buffer[currBufferPosition];
-                    endSequenceIndex++;
-                    currBufferPosition--;
-                }
-                if (strcmp(endSequence, "\r\n\r\n") == 0) {
-                    break;
-                }
-            }
-            char tempBuffer[BUFFSIZE - (strlen(buffer) + 1)];
-            receivedBytes += recv(clientFd, tempBuffer, BUFFSIZE - 1, 0);
-            strcat(buffer, tempBuffer);
-        }
-        if (receivedBytes == 0) {
-            close(clientFd);
-        } else {
-            // buffer is null terminated
-            strtok(buffer, " "); // get header scheme 
-            strtok(NULL, " "); // get method
-            char *headerPath = strtok(NULL, " ");
-            // remove \r\n\r\n at end of header path 
-            for (int i = 0; i < strlen(headerPath); i++) {
-                if (headerPath[i] == '\r' || headerPath[i] == '\n') {
-                    headerPath[i] = '0';
-                }
-            }
+        //int BUFFSIZE = 300;
+        //char buffer[300] = {0};
+        ////memset(buffer, 0, 300);
+        //int receivedBytes = recv(clientFd, buffer, BUFFSIZE - 1, 0);
+        //while (receivedBytes > 0) {
+            //if (receivedBytes == -1) {
+                //printf("Response data failed to send: %s\n", strerror(errno));
+                //exit(1);
+            //}
+            //// check if end sequence is found by comparing with last 4 characters in received string
+            //if (receivedBytes > 4) {
+                //// get last 4 characters of received header 
+                //char endSequence[5]; // account for null terminator
+                //memset(endSequence, 0, 5);
+                //int currBufferPosition = receivedBytes - 1;
+                //int startEndSequencePosition = receivedBytes - 6;
+                //int endSequenceIndex = 0;
+                //while (startEndSequencePosition < currBufferPosition) {
+                    //printf("endSequendceIndex: %d\n", endSequenceIndex);
+                    //endSequence[endSequenceIndex] = buffer[currBufferPosition];
+                    //endSequenceIndex++;
+                    //currBufferPosition--;
+                //}
+                //if (strcmp(endSequence, "\r\n\r\n") == 0) {
+                    //break;
+                //}
+            //}
+            //char tempBuffer[BUFFSIZE - (strlen(buffer) + 1)];
+            //receivedBytes += recv(clientFd, tempBuffer, BUFFSIZE - 1, 0);
+            //strcat(buffer, tempBuffer);
+        //}
+        //if (receivedBytes == 0) {
+            //close(clientFd);
+        //} else {
+            //// buffer is null terminated
+            //strtok(buffer, " "); // get header scheme 
+            //strtok(NULL, " "); // get method
+            //char *headerPath = strtok(NULL, " ");
+            //// remove \r\n\r\n at end of header path 
+            //for (int i = 0; i < strlen(headerPath); i++) {
+                //if (headerPath[i] == '\r' || headerPath[i] == '\n') {
+                    //headerPath[i] = '0';
+                //}
+            //}
 
-            //gfserver->handler(&gfcontext, "/courses/ud923/filecorpus/1kb-sample-file-1.html", gfserver->handlerarg);
-            gfserver->handler(&gfcontext, headerPath, gfserver->handlerarg);
-            printf("mesage sent successfully");
-        }
+            ////gfserver->handler(&gfcontext, "/courses/ud923/filecorpus/1kb-sample-file-1.html", gfserver->handlerarg);
+            //gfserver->handler(&gfcontext, headerPath, gfserver->handlerarg);
+            //printf("mesage sent successfully");
+        //}
 
 
-        free(gfcontext);
+        //free(gfcontext);
 
         /*
         - receive the request
@@ -252,5 +340,7 @@ void gfserver_serve(gfserver_t **gfs){
         */
 
     }
+
+    freeaddrinfo(serverInfo);
 }
 

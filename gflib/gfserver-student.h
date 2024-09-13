@@ -7,5 +7,6 @@
 #include "gf-student.h"
 #include "gfserver.h"
 
+typedef enum { SUCCESS, REPEAT, FAIL } STATE_RETURN_CODE;
 
 #endif // __GF_SERVER_STUDENT_H__
