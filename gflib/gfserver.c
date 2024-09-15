@@ -118,19 +118,93 @@ void gfserver_set_handler(gfserver_t **gfs, gfh_error_t (*handler)(gfcontext_t *
 }
 
 // define state functions
-STATE_RETURN_CODE startState(char* currStr, char c) {
-    return SUCCESS;
+STATE_RETURN_CODE schemeState(char* currStr, char c) {
+    //printf("SCHEME STATE char: %c\n", c);
+    //printf("curr str: %s\n", currStr);
+    int currLen = strlen(currStr);
+    if (currLen == 7 && strcmp(currStr, "GETFILE") == 0) {
+        return SUCCESS;
+    }
+    // we need to change currStr because 
+    if (currLen >= 8) {
+        return FAIL;
+    }
+    return REPEAT;
+}
+
+STATE_RETURN_CODE spaceState(char* currStr, char c) {
+    printf("SPACE STATE char: %c\n", c);
+    if (c == ' ') {
+        return SUCCESS;
+    }
+    return FAIL;
+}
+
+STATE_RETURN_CODE methodState(char* currStr, char c) {
+    int currLen = strlen(currStr);
+    //printf("METHOD STATE char: %c\n", c);
+    //printf("METHOD STATE currStr length: %d\n", currLen);
+    //printf("curr str: %s\n", currStr);
+    if (currLen == 3 && strcmp(currStr, "GET") == 0) {
+        return SUCCESS;
+    }
+    else if (currLen == 1 && c != 'G') {
+        return FAIL;
+    }
+    else if (currLen == 2 && c != 'E') {
+        return FAIL;
+    }
+    else if (currLen > 3) {
+        return FAIL;
+    }
+    return REPEAT;
+}
+
+STATE_RETURN_CODE secondSpaceState(char* currStr, char c) {
+    printf("SECOND SPACE STATE char: %c\n", c);
+    if (c == ' ') {
+        return SUCCESS;
+    }
+    return FAIL;
+}
+
+STATE_RETURN_CODE pathState(char* currStr, char c) {
+    int currStrLen = strlen(currStr);
+    //printf("currStr: %s\n", currStr);
+    if (
+        currStrLen >= 4 && 
+        currStr[currStrLen - 1] == '\n' &&
+        currStr[currStrLen - 2] == '\r' &&
+        currStr[currStrLen - 3] == '\n' &&
+        currStr[currStrLen - 4] == '\r'
+    ) {
+        printf("passed path state: %s\n", currStr);
+        currStr[currStrLen - 1] = 0;
+        currStr[currStrLen - 2] = 0;
+        currStr[currStrLen - 3] = 0;
+        currStr[currStrLen - 4] = 0;
+        return SUCCESS;
+    }
+    return REPEAT;
 }
 
 // state functions
 typedef STATE_RETURN_CODE (*GetFileStateFunc)(char *currStr,  char c);
 GetFileStateFunc GetFileStateFunctions[] = {
-    startState,
+    schemeState,
+    spaceState,
+    methodState,
+    secondSpaceState,
+    pathState,
 };
 
 // define different states
 typedef enum {
-    START,
+    SCHEME,
+    SPACE,
+    METHOD,
+    SECONDSPACE,
+    PATH,
     END
 } GETFILESTATE;
 
@@ -144,8 +218,24 @@ typedef struct {
 // transition array to define transitions
 Transition transitionStates[][3] = {
 {
-    {START, SUCCESS, END}, 
-    {START, REPEAT, START},
+    {SCHEME, SUCCESS, SPACE}, 
+    {SCHEME, REPEAT, SCHEME},
+},
+{
+    {SPACE, SUCCESS, METHOD}, 
+    {SPACE, REPEAT, SPACE},
+},
+{
+    {METHOD, SUCCESS, SECONDSPACE}, 
+    {METHOD, REPEAT, METHOD},
+},
+{
+    {SECONDSPACE, SUCCESS, PATH}, 
+    {SECONDSPACE, REPEAT, SECONDSPACE},
+},
+{
+    {PATH, SUCCESS, END}, 
+    {PATH, REPEAT, PATH},
 },
 };
 
@@ -215,11 +305,14 @@ void gfserver_serve(gfserver_t **gfs){
         gfcontext->clientFd = clientFd;
         printf("gf context : %d\n", gfcontext->clientFd);
 
-        GETFILESTATE currState;
+        GETFILESTATE currState = SCHEME;
         size_t getFileMessageCapacity = 2048;
+        size_t tempFileMessageCapacity = 2048;
         char *getFileMessage = calloc(getFileMessageCapacity, sizeof(char));
-        int recvBytes = recv(socketFd, getFileMessage, getFileMessageCapacity-1, 0);
+        char *tempFileMessage = calloc(getFileMessageCapacity, sizeof(char));
+        int recvBytes = recv(clientFd, getFileMessage, getFileMessageCapacity-1, 0);
         int getFileMessageIndex = 0;
+        int tempFileMessageIndex = 0;
         STATE_RETURN_CODE rc;
 
         while (recvBytes != 0) {
@@ -229,19 +322,27 @@ void gfserver_serve(gfserver_t **gfs){
                 exit(1);
             }
             printf("getFileMessage: %s\n", getFileMessage);
-
-
+            // iterate and verify newly received bytes
             while (getFileMessageIndex < strlen(getFileMessage)) {
-                // call state functions
-                GetFileStateFunc stateFunc = GetFileStateFunctions[currState];
-                rc = stateFunc(getFileMessage, getFileMessage[getFileMessageIndex]);
+                //printf("getFileMessageIndex: %d\n", getFileMessageIndex);
+                //printf("getFileMessageLength: %ld\n", strlen(getFileMessage));
+                char currGetFileChar = getFileMessage[getFileMessageIndex]; // get current char
+                //printf("currentGetFileChar: %c\n", currGetFileChar);
+                tempFileMessage[tempFileMessageIndex] = currGetFileChar; // add char to tempFileMessage
+                GetFileStateFunc stateFunc = GetFileStateFunctions[currState]; // call state functions
+                rc = stateFunc(tempFileMessage, currGetFileChar);
+                //printf("Result: %d\n", rc);
+                getFileMessageIndex++; // move to next character
+                tempFileMessageIndex++;
                 for (int i = 0; i < 2; i++) { // change 2 to whatever the size of inner most keys_array_ptr
                     Transition temp_state = transitionStates[currState][i];
                     if (temp_state.returnCode == rc) {
-                        printf("%d -> %d\n", currState, temp_state.destinationState);
-                        currState = temp_state.destinationState;
-                        if (rc == SUCCESS) {
-                            printf("SUCCESS!! \n");
+                        currState = temp_state.destinationState; // advance state
+                        printf("new currState: %d\n", currState);
+                        if (rc == SUCCESS && currState != END) {
+                            printf("SUCCESS on state %d.. \n", currState);
+                            memset(tempFileMessage, 0, tempFileMessageCapacity);
+                            tempFileMessageIndex = 0;
                             //free(curr_str);
                             //curr_str = calloc(1, sizeof(char));
                             //curr_str[0] = '\0';
@@ -250,13 +351,13 @@ void gfserver_serve(gfserver_t **gfs){
                     }
                 }
                 if (rc == FAIL) {
-                    printf("Failed, returning.. \n");
+                    printf("Failed on state %d, returning.. \n", currState);
                     break; // associated function printed to stderr already
                 }
             }
             
             // stop receiving bytes on success or fail
-            if (rc == SUCCESS || rc == FAIL) {
+            if (currState == END || rc == FAIL) {
                 break;
             }
 
@@ -267,9 +368,22 @@ void gfserver_serve(gfserver_t **gfs){
                 getFileMessageCapacity *= 2;
                 getFileMessage = realloc(getFileMessage, sizeof(char) * getFileMessageCapacity);
             }
-            int recvBytes = recv(socketFd, getFileMessage + strlen(getFileMessage), getFileMessageSpaceLeft, 0);
+            int tempFileMessageSpaceLeft = tempFileMessageCapacity - strlen(tempFileMessage) - 1;
+            if (tempFileMessageSpaceLeft == 0) {
+                tempFileMessageSpaceLeft += tempFileMessageCapacity;
+                tempFileMessageCapacity *= 2;
+                tempFileMessage = realloc(tempFileMessage, sizeof(char) * tempFileMessageCapacity);
+            }
+            recvBytes = recv(socketFd, getFileMessage + strlen(getFileMessage), getFileMessageSpaceLeft, 0);
             getFileMessage[strlen(getFileMessage)] = 0; // set null terminator
         }
+
+        printf("tempFileMessage to pass to handle: %s\n", tempFileMessage);
+        gfserver->handler(&gfcontext, tempFileMessage, gfserver->handlerarg);
+        printf("mesage sent successfully");
+        free(gfcontext);
+        free(tempFileMessage);
+        free(getFileMessage);
         
 
         /*
