@@ -49,6 +49,10 @@ gfstatus_t gfc_get_status(gfcrequest_t **gfr) {
 gfcrequest_t *gfc_create() {
   // not yet implemented
   gfcrequest_t *newGfcRequest = malloc(sizeof(gfcrequest_t));
+  newGfcRequest->headerfunc = NULL;
+  newGfcRequest->headerarg = NULL;
+  newGfcRequest->writefunc = NULL;
+  newGfcRequest->writearg = NULL;
   return newGfcRequest;
 }
 
@@ -133,13 +137,13 @@ int gfc_perform(gfcrequest_t **gfr) {
   }
 
   // receive response
-  int totalReceived = 0;
-  int receivedBytes = 0;
   int recvBufsize = 2048;
   char *recvBuffer = malloc(recvBufsize * sizeof(char)); 
   memset(recvBuffer, 0, recvBufsize);
-  receivedBytes = recv(socketFd, recvBuffer, recvBufsize - 1, 0);
-  totalReceived += receivedBytes;
+  char *header = NULL;
+  int receivedBytes = recv(socketFd, recvBuffer, recvBufsize, 0);
+  int totalReceived = receivedBytes;
+  int contentlen = 0;
   printf("received bytes: %d\n", receivedBytes);
   printf("total received: %d\n", totalReceived);
   printf("response: %s\n", recvBuffer);
@@ -149,10 +153,90 @@ int gfc_perform(gfcrequest_t **gfr) {
           printf("Response header failed to be received: %s\n", strerror(errno));
           exit(1);
       }
+      if (header != NULL) {
+        gfReq->writefunc(recvBuffer + contentlen, receivedBytes, gfReq->writearg);
+        contentlen += receivedBytes;
+        //printf("content length: %ld\n", totalReceived - (strlen(header) + 4));
+        printf("chunk received: %d\n", receivedBytes);
+      }
+      if ((header = strtok(recvBuffer, "\r\n\r\n")) != NULL) {
+        if (gfReq->headerfunc != NULL) {
+          gfReq->headerfunc(header, strlen(header), gfReq->headerarg);
+        } else { //process header
+          if (header == NULL) {
+            // invalid header, does not have "\r\n\r\n"
+            return -1;
+          }
+          printf("header: %s\n", header);
+          // check scheme is correct and there is a space after it
+          if (strncmp(recvBuffer, "GETFILE ", 8) != 0) {
+            // header does not start with "GETFILE "
+            return -1;
+          }
+          printf("strlen(header): %ld\n", strlen(header));
+          printf("strlen(header + 8): %ld\n", strlen(header + 8));
+          int statusAndLengthLen = strlen(header + 8) + 1; // subtract 8 since we don't need scheme and space, also account for null term
+          printf("statusAndLengthLen: %d\n", statusAndLengthLen);
+          char statusAndLength[statusAndLengthLen];  
+          memset(statusAndLength, 0, statusAndLengthLen);
+          printf("header[8]: %c\n", header[8]);
+          strncpy(statusAndLength, &header[8], statusAndLengthLen - 1); // account or null term
+          //statusAndLength[statusAndLengthLen] = '0';
+          printf("header without scheme: %s\n", statusAndLength);
+
+          // check if header without scheme is at least 4 characters, if OK we must have at least "OK n", otherwise it will be longer
+          if (strlen(statusAndLength) < 4) {
+            // invalid length of status and length
+            return -1;
+          }
+          char *status = strtok(statusAndLength, " ");
+          if (status == NULL) { // there is no space, thus there is no length
+            if (strcmp(status, "FILE_NOT_FOUND") == 0 || strcmp(status, "ERROR") == 0 || strcmp(status, "INVALID") == 0) {
+              // we have a status of either FILE_NOT_FOUND, ERROR, or INVALID
+              printf("status: %s\n", status);
+            } else {
+              // invalid status
+              printf("status invalid\n");
+              return -1;
+            }
+          } else { 
+            if (strcmp(status, "OK") != 0) { // invalid status
+              return -1;
+            }
+            char *fileLengthStr = strtok(NULL, " ");
+            printf("file length str: %s\n", fileLengthStr);
+            if (fileLengthStr == NULL) { // file length must be given if status is OK
+              printf("file length is not given\n");
+              return -1;
+            }
+            // check if file length is a number
+            for (int i = 0; i < strlen(fileLengthStr); i++) {
+              if (isdigit(fileLengthStr[i]) == 0) {
+                printf("fileLengthStr[i]: %c\n", fileLengthStr[i]);
+                printf("invalid file length. Not a valid number\n");
+                return -1;
+              }
+            }
+            int fileLength = atoi(fileLengthStr);
+            printf("file length: %d\n", fileLength);
+            printf("status: %s\n", status);
+            // insert file length and status in request structure
+          }
+          // reset recvbuffer and load content into it 
+          char *content = strtok(NULL, "\r\n\r\n");
+          int contentLen = totalReceived - (strlen(header) + 4);
+          memset(recvBuffer, 0, totalReceived);
+          printf("writing chunk of len: %d\n", contentLen);
+          if (content != NULL) {
+            strcpy(recvBuffer, content);
+            gfReq->writefunc(recvBuffer, contentLen, gfReq->writearg);
+          }
+        }
+      }
       printf("total received: %d\n", totalReceived);
       printf("buffer size: %d\n", recvBufsize);
       printf("strlen: %ld\n", strlen(recvBuffer));
-      int recvBufferFreeSpace = recvBufsize - (totalReceived + 1);
+      int recvBufferFreeSpace = recvBufsize - totalReceived;
       printf("free space in buffer: %d\n", recvBufferFreeSpace);
       if (recvBufferFreeSpace == 0) {
         recvBufferFreeSpace += recvBufsize;
@@ -165,9 +249,9 @@ int gfc_perform(gfcrequest_t **gfr) {
       printf("bytes received: %d\n", receivedBytes);
       printf("total bytes available in buffer: %d\n", recvBufferFreeSpace);
       printf("total bytes received: %d\n", totalReceived);
-      recvBuffer[totalReceived] = 0;
       printf("response: %s\n", recvBuffer);
   }
+
 
   // validate response
   /*
@@ -185,76 +269,80 @@ int gfc_perform(gfcrequest_t **gfr) {
   - for content we write to file
   */
   // split response header on "\r\n\r\n"
-  char *header = strtok(recvBuffer, "\r\n\r\n");
-  if (header == NULL) {
-    // invalid header, does not have "\r\n\r\n"
-    return -1;
-  }
-  char *content = strtok(NULL, "\r\n\r\n");
+  //char *header = strtok(recvBuffer, "\r\n\r\n");
+  //if (header == NULL) {
+    //// invalid header, does not have "\r\n\r\n"
+    //return -1;
+  //}
+  //char *content = strtok(NULL, "\r\n\r\n");
 
-  printf("header: %s\n", header);
-  printf("content: %s\n", content);
+  //printf("header: %s\n", header);
+  //printf("content: %s\n", content);
 
-  // check scheme is correct and there is a space after it
-  if (strncmp(recvBuffer, "GETFILE ", 8) != 0) {
-    // header does not start with "GETFILE "
-    return -1;
-  }
+  //// check scheme is correct and there is a space after it
+  //if (strncmp(recvBuffer, "GETFILE ", 8) != 0) {
+    //// header does not start with "GETFILE "
+    //return -1;
+  //}
 
-  printf("strlen(header): %ld\n", strlen(header));
-  printf("strlen(header + 8): %ld\n", strlen(header + 8));
-  int statusAndLengthLen = strlen(header + 8) + 1; // subtract 8 since we don't need scheme and space, also account for null term
-  printf("statusAndLengthLen: %d\n", statusAndLengthLen);
-  char statusAndLength[statusAndLengthLen];  
-  memset(statusAndLength, 0, statusAndLengthLen);
-  printf("header[8]: %c\n", header[8]);
-  strncpy(statusAndLength, &header[8], statusAndLengthLen - 1); // account or null term
-  //statusAndLength[statusAndLengthLen] = '0';
-  printf("header without scheme: %s\n", statusAndLength);
+  //printf("strlen(header): %ld\n", strlen(header));
+  //printf("strlen(header + 8): %ld\n", strlen(header + 8));
+  //int statusAndLengthLen = strlen(header + 8) + 1; // subtract 8 since we don't need scheme and space, also account for null term
+  //printf("statusAndLengthLen: %d\n", statusAndLengthLen);
+  //char statusAndLength[statusAndLengthLen];  
+  //memset(statusAndLength, 0, statusAndLengthLen);
+  //printf("header[8]: %c\n", header[8]);
+  //strncpy(statusAndLength, &header[8], statusAndLengthLen - 1); // account or null term
+  ////statusAndLength[statusAndLengthLen] = '0';
+  //printf("header without scheme: %s\n", statusAndLength);
 
-  // check if header without scheme is at least 4 characters, if OK we must have at least "OK n", otherwise it will be longer
-  if (strlen(statusAndLength) < 4) {
-    // invalid length of status and length
-    return -1;
-  }
+  //// check if header without scheme is at least 4 characters, if OK we must have at least "OK n", otherwise it will be longer
+  //if (strlen(statusAndLength) < 4) {
+    //// invalid length of status and length
+    //return -1;
+  //}
 
-  char *status = strtok(statusAndLength, " ");
-  if (status == NULL) { // there is no space, thus there is no length
-    if (strcmp(status, "FILE_NOT_FOUND") == 0 || strcmp(status, "ERROR") == 0 || strcmp(status, "INVALID") == 0) {
-      // we have a status of either FILE_NOT_FOUND, ERROR, or INVALID
-      printf("status: %s\n", status);
-    } else {
-      // invalid status
-      printf("status invalid\n");
-      return -1;
-    }
-  } else { 
-    if (strcmp(status, "OK") != 0) { // invalid status
-      return -1;
-    }
-    char *fileLengthStr = strtok(NULL, " ");
-    printf("file length str: %s\n", fileLengthStr);
-    if (fileLengthStr == NULL) { // file length must be given if status is OK
-      printf("file length is not given\n");
-      return -1;
-    }
-    // check if file length is a number
-    for (int i = 0; i < strlen(fileLengthStr); i++) {
-      if (isdigit(fileLengthStr[i]) != 0) {
-        printf("fileLengthStr[i]: %c\n", fileLengthStr[i]);
-        printf("invalid file length. Not a valid number\n");
-        return -1;
-      }
-    }
-    int fileLength = atoi(fileLengthStr);
-    printf("file length: %d\n", fileLength);
-    printf("status: %s\n", status);
-    // insert file length and status in request structure
-  }
+  //char *status = strtok(statusAndLength, " ");
+  //if (status == NULL) { // there is no space, thus there is no length
+    //if (strcmp(status, "FILE_NOT_FOUND") == 0 || strcmp(status, "ERROR") == 0 || strcmp(status, "INVALID") == 0) {
+      //// we have a status of either FILE_NOT_FOUND, ERROR, or INVALID
+      //printf("status: %s\n", status);
+    //} else {
+      //// invalid status
+      //printf("status invalid\n");
+      //return -1;
+    //}
+  //} else { 
+    //if (strcmp(status, "OK") != 0) { // invalid status
+      //return -1;
+    //}
+    //char *fileLengthStr = strtok(NULL, " ");
+    //printf("file length str: %s\n", fileLengthStr);
+    //if (fileLengthStr == NULL) { // file length must be given if status is OK
+      //printf("file length is not given\n");
+      //return -1;
+    //}
+    //// check if file length is a number
+    //for (int i = 0; i < strlen(fileLengthStr); i++) {
+      //if (isdigit(fileLengthStr[i]) == 0) {
+        //printf("fileLengthStr[i]: %c\n", fileLengthStr[i]);
+        //printf("invalid file length. Not a valid number\n");
+        //return -1;
+      //}
+    //}
+    //int fileLength = atoi(fileLengthStr);
+    //printf("file length: %d\n", fileLength);
+    //printf("status: %s\n", status);
+    //// insert file length and status in request structure
+  //}
+
+  // successfully received all chunks, now we write
+  //int contentLength = totalReceived - (4 + strlen(header)); // account for \r\n\r\n a and beginning of header length
+  //gfReq->writefunc(content, contentLength, gfReq->writearg);
 
   close(socketFd);
 
-  return -1;
+  return 0;
 }
 
 
