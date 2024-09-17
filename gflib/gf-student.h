@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <sys/signal.h>
 #include <netinet/in.h>
+#include <ctype.h>
 
 int sendAll(int fd, char *buffer, int bufferLength);
 

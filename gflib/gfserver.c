@@ -403,4 +403,3 @@ void gfserver_serve(gfserver_t **gfs){
     }
     freeaddrinfo(serverInfo);
 }
-
