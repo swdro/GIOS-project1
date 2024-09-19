@@ -20,3 +20,12 @@ int sendAll(int fd, char *buffer, int bufferLength) {
     return bytesSent;
 }
 
+//int recvAll(int fd, char *buffer, int bufferLength) {
+    //int totalBytesReceived = 0;
+    //int receivedBytes = recv(fd, buffer, bufferLength, 0);
+
+    //while (totalBytesReceived < bufferLength) {
+
+    //}
+//}
+

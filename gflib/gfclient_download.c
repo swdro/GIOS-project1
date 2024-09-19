@@ -66,7 +66,7 @@ static FILE *openFile(char *path) {
 /* Callbacks ========================================================= */
 static void writecb(void *data, size_t data_len, void *arg) {
   FILE *file = (FILE *)arg;
-
+  printf("writing %zu bytes...\n", data_len);
   fwrite(data, 1, data_len, file);
 }
 
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
   char *server = "localhost";
   unsigned short port = 29384;
 
-  setbuf(stdout, NULL);  // disable buffering
+  setbuf(stdout, NULL);  // disable bufferingi
 
   // Parse and set command line arguments
   while ((option_char = getopt_long(argc, argv, "l:r:hp:s:n:", gLongOptions,
