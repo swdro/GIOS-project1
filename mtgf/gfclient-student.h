@@ -8,5 +8,6 @@
 #include "gfclient.h"
 #include "gf-student.h"
 #include "steque.h"
+#include <pthread.h>
  
  #endif // __GF_CLIENT_STUDENT_H__

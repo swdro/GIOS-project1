@@ -2,6 +2,15 @@
 
 #include "gfclient-student.h"
 
+#define KNRM  "\x1B[0m"
+#define KRED  "\x1B[31m"
+#define KGRN  "\x1B[32m"
+#define KYEL  "\x1B[33m"
+#define KBLU  "\x1B[34m"
+#define KMAG  "\x1B[35m"
+#define KCYN  "\x1B[36m"
+#define KWHT  "\x1B[37m"
+
 #define MAX_THREADS 1024
 #define PATH_BUFFER_SIZE 512
 
@@ -34,6 +43,9 @@ typedef struct {
   int port;
   char *server;
 } request_data_t;
+int exit_threads = 0;
+pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t c_cons = PTHREAD_COND_INITIALIZER;
 
 static void Usage() { fprintf(stderr, "%s", USAGE); }
 
@@ -78,68 +90,85 @@ static void writecb(void *data, size_t data_len, void *arg) {
   fwrite(data, 1, data_len, file);
 }
 
-void worker_thread(void *arg) {
-  steque_t * queue = (steque_t *) queue;
+void *worker_thread(void *arg) {
+  steque_t *queue = (steque_t *)arg;
   int returncode = 0;
+  while (1) {
 
-  /* Note that when you have a worker thread pool, you will need to move this
-    * logic into the worker threads */
-  char *req_path = workload_get_path();
+    pthread_mutex_lock(&queue_mutex);
+			while (steque_isempty(queue)) {
+        printf("%sexit thread value: %d, %ld%s\n", KGRN, exit_threads, pthread_self(), KNRM);
+        if (exit_threads > 0) {
+          printf("exited thread: %ld\n", pthread_self());
+          pthread_exit(0);
+        }
+        printf("%swaiting for wakeup on thread %ld%s\n", KRED, pthread_self(), KNRM);
+				pthread_cond_wait(&c_cons, &queue_mutex);
+			}
+      request_data_t *rd = (request_data_t *) steque_pop(queue);
+    pthread_mutex_unlock(&queue_mutex);
 
-  if (strlen(req_path) > PATH_BUFFER_SIZE) {
-    fprintf(stderr, "Request path exceeded maximum of %d characters\n.", PATH_BUFFER_SIZE);
-    exit(EXIT_FAILURE);
-  }
+    printf("starting work on thread: %ld\n", pthread_self());
 
-  char local_path[PATH_BUFFER_SIZE];
-  localPath(req_path, local_path);
+    /* Note that when you have a worker thread pool, you will need to move this
+      * logic into the worker threads */
+    char *req_path = workload_get_path();
 
-  FILE *file = NULL;
-  file = openFile(local_path);
-
-  gfr = gfc_create();
-  gfc_set_path(&gfr, req_path);
-
-  gfc_set_port(&gfr, port);
-  gfc_set_server(&gfr, server);
-  gfc_set_writearg(&gfr, file);
-  gfc_set_writefunc(&gfr, writecb);
-
-
-
-  fprintf(stdout, "Requesting %s%s\n", server, req_path);
-
-  if (0 > (returncode = gfc_perform(&gfr))) {
-    fprintf(stdout, "gfc_perform returned an error %d\n", returncode);
-    fclose(file);
-    if (0 > unlink(local_path))
-      fprintf(stderr, "warning: unlink failed on %s\n", local_path);
-  } else {
-    fclose(file);
-  }
-
-  if (gfc_get_status(&gfr) != GF_OK) {
-    if (0 > unlink(local_path)) {
-      fprintf(stderr, "warning: unlink failed on %s\n", local_path);
+    if (strlen(req_path) > PATH_BUFFER_SIZE) {
+      fprintf(stderr, "Request path exceeded maximum of %d characters\n.", PATH_BUFFER_SIZE);
+      exit(EXIT_FAILURE);
     }
+
+    char local_path[PATH_BUFFER_SIZE];
+    localPath(req_path, local_path);
+
+    FILE *file = NULL;
+    file = openFile(local_path);
+
+    gfcrequest_t *gfr = gfc_create();
+    gfc_set_path(&gfr, req_path);
+
+    gfc_set_port(&gfr, rd->port);
+    gfc_set_server(&gfr, rd->server);
+    gfc_set_writearg(&gfr, file);
+    gfc_set_writefunc(&gfr, writecb);
+
+
+
+    fprintf(stdout, "Requesting %s%s\n", rd->server, req_path);
+
+    if (0 > (returncode = gfc_perform(&gfr))) {
+      fprintf(stdout, "gfc_perform returned an error %d\n", returncode);
+      fclose(file);
+      if (0 > unlink(local_path))
+        fprintf(stderr, "warning: unlink failed on %s\n", local_path);
+    } else {
+      fclose(file);
+    }
+
+    if (gfc_get_status(&gfr) != GF_OK) {
+      if (0 > unlink(local_path)) {
+        fprintf(stderr, "warning: unlink failed on %s\n", local_path);
+      }
+    }
+
+    fprintf(stdout, "Status: %s\n", gfc_strstatus(gfc_get_status(&gfr)));
+    fprintf(stdout, "Received %zu of %zu bytes\n", gfc_get_bytesreceived(&gfr),
+            gfc_get_filelen(&gfr));
+
+    gfc_cleanup(&gfr);
+
+    /*
+      * note that when you move the above logic into your worker thread, you will
+      * need to coordinate with the boss thread here to effect a clean shutdown.
+      */
   }
-
-  fprintf(stdout, "Status: %s\n", gfc_strstatus(gfc_get_status(&gfr)));
-  fprintf(stdout, "Received %zu of %zu bytes\n", gfc_get_bytesreceived(&gfr),
-          gfc_get_filelen(&gfr));
-
-  gfc_cleanup(&gfr);
-
-  /*
-    * note that when you move the above logic into your worker thread, you will
-    * need to coordinate with the boss thread here to effect a clean shutdown.
-    */
 }
 
 /* Main ========================================================= */
 int main(int argc, char **argv) {
   /* COMMAND LINE OPTIONS ============================================= */
-  int returncode = 0;
+  //int returncode = 0;
   char *workload_path = "workload.txt";
   int option_char = 0;
   char *server = "localhost";
@@ -148,11 +177,11 @@ int main(int argc, char **argv) {
 
   char *req_path = NULL;
   int nthreads = 9;
-  char local_path[PATH_BUFFER_SIZE];
+  //char local_path[PATH_BUFFER_SIZE];
   int nrequests = 13;
 
-  gfcrequest_t *gfr = NULL;
-  FILE *file = NULL;
+  //gfcrequest_t *gfr = NULL;
+  //FILE *file = NULL;
 
   setbuf(stdout, NULL);  // disable caching
 
@@ -206,21 +235,36 @@ int main(int argc, char **argv) {
     boss thread should enqueue specified number of requests. Once boss confirms all requests have been completed, terminate worker threads and exit.
     Use steque.ch for the work queue and use at least one mutex and one condition variable. 
   */
-  steque_t *queue;
+  steque_t *queue = malloc(sizeof(steque_t));
   steque_init(queue);
 	thread_pool = malloc(sizeof(pthread_t) * nthreads);
 	for (int i = 0; i < nthreads; i++) {
+		pthread_create(&thread_pool[i], NULL, worker_thread, queue);
+	}
+
+  /* Build your queue of requests here */
+  for (int i = 0; i < nrequests; i++) {
     request_data_t *rd = malloc(sizeof(request_data_t));
     rd->path = req_path;
     rd->port = port;
     rd->server = server;
     rd->queue = queue;
-		pthread_create(&thread_pool[i], NULL, worker_thread, rd);
-	}
 
-  /* Build your queue of requests here */
-  for (int i = 0; i < nrequests; i++) {
-    
+    pthread_mutex_lock(&queue_mutex);
+      steque_enqueue(queue, rd);
+    pthread_mutex_unlock(&queue_mutex);
+
+    pthread_cond_broadcast(&c_cons);
+
+  }
+
+  /* Join threads before finishing */
+  exit_threads = 1;
+  pthread_cond_broadcast(&c_cons);
+  for (int i = 0; i < nthreads; i++) {
+    printf("exit threads: %d\n", exit_threads);
+    printf("waiting on thread: %ld\n", thread_pool[i]);
+    pthread_join(thread_pool[i], NULL);
   }
 
   gfc_global_cleanup();  /* use for any global cleanup for AFTER your thread
