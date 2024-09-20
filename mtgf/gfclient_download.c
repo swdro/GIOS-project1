@@ -133,6 +133,11 @@ int main(int argc, char **argv) {
   gfc_global_init();
 
   // add your threadpool creation here
+  /*
+    pool of threads initialized based on command line
+    boss thread should enqueue specified number of requests. Once boss confirms all requests have been completed, terminate worker threads and exit.
+    Use steque.ch for the work queue and use at least one mutex and one condition variable. 
+  */
 
   /* Build your queue of requests here */
   for (int i = 0; i < nrequests; i++) {

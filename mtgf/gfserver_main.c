@@ -94,6 +94,11 @@ int main(int argc, char **argv) {
 
   /* Initialize thread management */
 
+
+  steque_t *request_queue = malloc(sizeof(steque_t));
+  steque_init(request_queue);
+  init_threads(nthreads, request_queue);
+
   /*Initializing server*/
   gfs = gfserver_create();
 
@@ -101,8 +106,13 @@ int main(int argc, char **argv) {
   gfserver_set_port(&gfs, port);
   gfserver_set_maxpending(&gfs, 24);
   gfserver_set_handler(&gfs, gfs_handler);
-  gfserver_set_handlerarg(&gfs, NULL);  // doesn't have to be NULL!
+  gfserver_set_handlerarg(&gfs, request_queue);  // doesn't have to be NULL!
 
   /*Loops forever*/
   gfserver_serve(&gfs);
+
+  /*not sure if necessary*/
+  cleanup_threads();
+  steque_destroy(request_queue);
+  free(request_queue);
 }
