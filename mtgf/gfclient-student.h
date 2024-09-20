@@ -7,5 +7,6 @@
 #include "workload.h"
 #include "gfclient.h"
 #include "gf-student.h"
+#include "steque.h"
  
  #endif // __GF_CLIENT_STUDENT_H__
