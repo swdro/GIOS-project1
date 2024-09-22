@@ -99,7 +99,8 @@ void *worker_thread(void *arg) {
 			while (steque_isempty(queue)) {
         printf("%sexit thread value: %d, %ld%s\n", KGRN, exit_threads, pthread_self(), KNRM);
         if (exit_threads > 0) {
-          printf("exited thread: %ld\n", pthread_self());
+          pthread_mutex_unlock(&queue_mutex);
+          printf("%sexited thread: %ld%s\n", KCYN, pthread_self(), KNRM);
           pthread_exit(0);
         }
         printf("%swaiting for wakeup on thread %ld%s\n", KRED, pthread_self(), KNRM);
@@ -157,6 +158,7 @@ void *worker_thread(void *arg) {
             gfc_get_filelen(&gfr));
 
     gfc_cleanup(&gfr);
+    free(rd);
 
     /*
       * note that when you move the above logic into your worker thread, you will
@@ -269,6 +271,18 @@ int main(int argc, char **argv) {
 
   gfc_global_cleanup();  /* use for any global cleanup for AFTER your thread
                           pool has terminated. */
+
+  free(thread_pool);
+  steque_destroy(queue);
+  free(queue);
+	int mutex_destroy_status = pthread_mutex_destroy(&queue_mutex);
+	if (mutex_destroy_status != 0) {
+		perror("error destroying mutex\n");
+	}
+	int cond_var_destroy_status = pthread_cond_destroy(&c_cons);
+	if (cond_var_destroy_status != 0) {
+		perror("error destroying mutex\n");
+	}
 
   return 0;
 }
